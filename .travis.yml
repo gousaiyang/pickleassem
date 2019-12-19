@@ -1,0 +1,13 @@
+dist: xenial
+language: python
+python:
+  - "3.5"
+  - "3.6"
+  - "3.7"
+  - "3.8"
+install:
+  - pip install codecov coverage
+script:
+  - coverage run test_pickleassem.py
+after_success:
+  - codecov
