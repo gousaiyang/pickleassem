@@ -5,7 +5,10 @@
 [![PyPI - Format](https://img.shields.io/pypi/format/pickleassem.svg)](https://pypi.org/project/pickleassem)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pickleassem.svg)](https://pypi.org/project/pickleassem)
 [![PyPI - Status](https://img.shields.io/pypi/status/pickleassem.svg)](https://pypi.org/project/pickleassem)
-![License](https://img.shields.io/github/license/gousaiyang/pickleassem.svg)
+
+[![Travis CI - Status](https://img.shields.io/travis/com/gousaiyang/pickleassem.svg)](https://travis-ci.com/gousaiyang/pickleassem)
+[![Codecov - Coverage](https://codecov.io/gh/gousaiyang/pickleassem/branch/master/graph/badge.svg)](https://codecov.io/gh/gousaiyang/pickleassem)
+![License](https://img.shields.io/pypi/l/pickleassem.svg)
 
 A simple pickle assembler to make handcrafting pickle bytecode easier.
 
