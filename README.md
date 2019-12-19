@@ -12,6 +12,8 @@
 
 A simple pickle assembler to make handcrafting pickle bytecode easier.
 
+This is useful for CTF challenges like [pyshv in Balsn CTF 2019](https://ctftime.org/task/9386).
+
 ## Demo
 
 ```python
@@ -46,7 +48,6 @@ daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
 bin:x:2:2:bin:/bin:/usr/sbin/nologin
 sys:x:3:3:sys:/dev:/usr/sbin/nologin
 ...
-0
 ```
 
 ## Installation
