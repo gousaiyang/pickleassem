@@ -1,5 +1,4 @@
 import pickle
-import sys
 import unittest
 
 from pickleassem import (HIGHEST_PROTOCOL, PROTO, Opcode, PickleAssembler,  # pylint: disable=unused-import
@@ -558,4 +557,4 @@ class TestPickleAssembler(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    sys.exit(unittest.main())
+    unittest.main()
