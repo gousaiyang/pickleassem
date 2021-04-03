@@ -38,6 +38,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
+        python -m pip install --upgrade pip-with-requires-python
         python -m pip install --upgrade pip setuptools wheel
         pip install coverage
     - name: Test
