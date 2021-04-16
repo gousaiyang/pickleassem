@@ -418,14 +418,14 @@ class TestPickleAssembler(unittest.TestCase):
 
     def test_util_push_nested(self) -> None:
         obj = {(None, True): [{-1: 3.14}, 'boo']}
-        for proto in range(HIGHEST_PROTOCOL + 1):
+        for proto in range(DEFAULT_TEST_PROTO + 1):
             with self.subTest(obj=obj, proto=proto):
                 pa = PickleAssembler(proto=proto)
                 pa.util_push(obj)
                 self.assertEqual(pickle.loads(pa.assemble()), obj)
 
         obj = {(None, True): [{-1: 3.14}, (b'baz', 'boo')]}
-        for proto in range(3, HIGHEST_PROTOCOL + 1):
+        for proto in range(3, DEFAULT_TEST_PROTO + 1):
             with self.subTest(obj=obj, proto=proto):
                 pa = PickleAssembler(proto=proto)
                 pa.util_push(obj)
@@ -440,7 +440,7 @@ class TestPickleAssembler(unittest.TestCase):
     def test_util_memo(self) -> None:
         obj = (42,)
         indices = [255, 256]  # type: list[int]
-        for proto in range(HIGHEST_PROTOCOL + 1):
+        for proto in range(DEFAULT_TEST_PROTO + 1):
             for index in indices:
                 with self.subTest(index=index, proto=proto):
                     pa = PickleAssembler(proto=proto)
