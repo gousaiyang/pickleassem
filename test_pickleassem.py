@@ -1,49 +1,74 @@
-import pickle
+import pickle  # nosec
+import re
+import struct
 import unittest
+from typing import cast
 
-from pickleassem import (HIGHEST_PROTOCOL, PROTO, Opcode, PickleAssembler,  # pylint: disable=unused-import
-                         PickleProtocolMismatchError, _is_opcode_method, _method_name_to_opcode, p8, p16, p32, p64,
-                         pack)
+from typing_extensions import TYPE_CHECKING
+
+from pickleassem import (BINBYTES, BINFLOAT, BININT, BININT1, BININT2, BINUNICODE, DICT,  # nosec
+                         EMPTY_DICT, EMPTY_LIST, EMPTY_TUPLE, FLOAT, HIGHEST_PROTOCOL, INT, LIST,
+                         LONG1, LONG4, MARK, NEWFALSE, NONE, PROTO, SHORT_BINBYTES,
+                         SHORT_BINUNICODE, TRUE, TUPLE, TUPLE1, TUPLE2, TUPLE3, UNICODE, Opcode,
+                         PickleAssembler, PickleProtocolMismatchError, _is_opcode_method,
+                         _method_name_to_opcode, p8, p16, p32, p64, pack)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 DEFAULT_TEST_PROTO = pickle.HIGHEST_PROTOCOL
 
 
 class SampleClass:
-    def __new__(cls, attr1=None, *, attr2=None):
+    # Define attributes here for typing purposes.
+    attr1 = None  # type: object
+    attr2 = None  # type: object
+
+    def __new__(cls, attr1: object = None, *, attr2: object = None) -> 'SampleClass':
         obj = super().__new__(cls)
         obj.attr1 = attr1
         obj.attr2 = attr2
-        return obj
+        return cast(SampleClass, obj)
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         return isinstance(other, SampleClass) and other.__dict__ == self.__dict__
-
-    def __hash__(self):  # pragma: no cover
-        return hash((self.attr1, self.attr2))
 
 
 class TestPickleAssembler(unittest.TestCase):
-    def test_init(self):
-        with self.assertRaises(TypeError):
-            pa = PickleAssembler(proto='x')
-        with self.assertRaises(ValueError):
+    def test_init(self) -> None:
+        with self.assertRaisesRegex(TypeError, re.escape('pickle protocol must be an integer')):
+            pa = PickleAssembler(proto='x')  # type: ignore[arg-type]
+        with self.assertRaisesRegex(ValueError, re.escape('unsupported pickle protocol, must be in range')):
             pa = PickleAssembler(proto=-1)
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, re.escape('unsupported pickle protocol, must be in range')):
             pa = PickleAssembler(proto=HIGHEST_PROTOCOL + 1)
-        with self.assertRaises(TypeError):
-            pa = PickleAssembler(proto=0, verify='x')
+        with self.assertRaisesRegex(TypeError, re.escape('verify must be bool')):
+            pa = PickleAssembler(proto=0, verify='x')  # type: ignore[arg-type]
 
         pa = PickleAssembler(proto=2, verify=False)
         self.assertEqual(pa.proto, 2)
-        self.assertEqual(pa.verify, False)
+        self.assertFalse(pa.verify)
         self.assertEqual(pa._payload, PROTO + p8(2))  # pylint: disable=protected-access
 
         pa = PickleAssembler(proto=1)
         self.assertEqual(pa.proto, 1)
-        self.assertEqual(pa.verify, True)
+        self.assertTrue(pa.verify)
         self.assertEqual(pa._payload, b'')  # pylint: disable=protected-access
 
-    def test_push_0(self):
+    def test_assemble(self) -> None:
+        pa = PickleAssembler(proto=0)
+        pa.push_none()
+        self.assertEqual(pa.assemble(), NONE + b'.')
+
+    def test_append_raw(self) -> None:
+        pa = PickleAssembler(proto=0)
+        pa.append_raw(b'foo')
+        self.assertEqual(pa.assemble(), b'foo.')
+
+        with self.assertRaisesRegex(TypeError, re.escape('raw data must be bytes')):
+            pa.append_raw('string')  # type: ignore[arg-type]
+
+    def test_push_0(self) -> None:
         test_cases = [
             ('push_none', None),
             ('push_false', False),
@@ -52,7 +77,7 @@ class TestPickleAssembler(unittest.TestCase):
             ('push_empty_list', []),
             ('push_empty_dict', {}),
             ('push_empty_set', set()),
-        ]
+        ]  # type: list[tuple[str, object]]
 
         for test_case in test_cases:
             function, expected_result = test_case
@@ -61,7 +86,7 @@ class TestPickleAssembler(unittest.TestCase):
                 getattr(pa, function)()
                 self.assertEqual(pickle.loads(pa.assemble()), expected_result)
 
-    def test_push_1(self):
+    def test_push_1(self) -> None:
         test_cases = [
             ('push_int', 66),
             ('push_int', False),
@@ -93,10 +118,10 @@ class TestPickleAssembler(unittest.TestCase):
             ('push_binunicode8', '\u4e2d\u6587'),
             ('push_short_binunicode', 'A' * 255),
             ('push_short_binunicode', '\u4e2d\u6587'),
-        ]
+        ]  # type: list[tuple[str, object]]
 
         if DEFAULT_TEST_PROTO >= 5:  # pragma: no cover
-            test_cases.append(('push_bytearray8', b'\xcc\xdd'))
+            test_cases.append(('push_bytearray8', bytearray(b'\xcc\xdd')))
 
         for test_case in test_cases:
             function, arg = test_case
@@ -105,12 +130,12 @@ class TestPickleAssembler(unittest.TestCase):
                 getattr(pa, function)(arg)
                 self.assertEqual(pickle.loads(pa.assemble()), arg)
 
-    def test_push_global(self):
+    def test_push_global(self) -> None:
         pa = PickleAssembler(proto=DEFAULT_TEST_PROTO)
         pa.push_global('__main__', 'SampleClass')
         self.assertIs(pickle.loads(pa.assemble()), SampleClass)
 
-    def test_build(self):
+    def test_build(self) -> None:
         with self.subTest(test_case='build_tuple'):
             pa = PickleAssembler(proto=DEFAULT_TEST_PROTO)
             pa.push_mark()
@@ -225,7 +250,9 @@ class TestPickleAssembler(unittest.TestCase):
             pa.push_binint(2)
             pa.push_binint(3)
             pa.build_additems()
-            self.assertEqual(pickle.loads(pa.assemble()), {1, 2, 3})
+            result = pickle.loads(pa.assemble())
+            self.assertEqual(result, {1, 2, 3})
+            self.assertIsInstance(result, set)
 
         with self.subTest(test_case='build_inst'):
             pa = PickleAssembler(proto=DEFAULT_TEST_PROTO)
@@ -297,7 +324,7 @@ class TestPickleAssembler(unittest.TestCase):
             pa.build_tuple()
             self.assertEqual(pickle.loads(pa.assemble()), (1, 1))
 
-    def test_pop(self):
+    def test_pop(self) -> None:
         with self.subTest(test_case='pop'):
             pa = PickleAssembler(proto=DEFAULT_TEST_PROTO)
             pa.push_mark()
@@ -319,7 +346,7 @@ class TestPickleAssembler(unittest.TestCase):
             pa.build_tuple()
             self.assertEqual(pickle.loads(pa.assemble()), (1,))
 
-    def test_memo(self):
+    def test_memo(self) -> None:
         pa = PickleAssembler(proto=DEFAULT_TEST_PROTO)
         pa.push_mark()
         pa.push_binint(1)
@@ -336,17 +363,101 @@ class TestPickleAssembler(unittest.TestCase):
         pa.memo_binget(0)
         pa.memo_binget(255)
         pa.memo_long_binget(4)
+        pa.memo_binget(66)
         pa.build_tuple()
-        self.assertEqual(pickle.loads(pa.assemble()), (1, 2, 3, 4, 3, 3, 2, 4))
+        self.assertEqual(pickle.loads(pa.assemble()), (1, 2, 3, 4, 3, 3, 2, 4, 1))
 
-    def test_string_encoding(self):
+    def test_util_push(self) -> None:
+        test_cases = [
+            (None, 0, NONE + b'.'),
+            (True, 1, TRUE + b'.'),
+            (False, 2, PROTO + p8(2) + NEWFALSE + b'.'),
+            (1, 0, INT + b'1\n.'),
+            (255, 1, BININT1 + p8(255) + b'.'),
+            (256, 1, BININT2 + p16(256) + b'.'),
+            (65535, 1, BININT2 + p16(65535) + b'.'),
+            (65536, 1, BININT + p32(65536, signed=True) + b'.'),
+            (-1, 1, BININT + p32(-1, signed=True) + b'.'),
+            (2 ** 31 - 1, 1, BININT + p32(2 ** 31 - 1, signed=True) + b'.'),
+            (2 ** 31, 1, INT + b'2147483648\n.'),
+            (2 ** 31, 2, PROTO + p8(2) + LONG1 + p8(5) + pack(2 ** 31, endian='<', signed=True) + b'.'),
+            (2 ** 2039 - 1, 2, PROTO + p8(2) + LONG1 + p8(255) + pack(2 ** 2039 - 1, endian='<', signed=True) + b'.'),
+            (2 ** 2039, 2, PROTO + p8(2) + LONG4 + p32(256) + pack(2 ** 2039, endian='<', signed=True) + b'.'),
+            (2.1, 0, FLOAT + b'2.1\n.'),
+            (2.1, 1, BINFLOAT + struct.pack('>d', 2.1) + b'.'),
+            (b'foo', 3, PROTO + p8(3) + SHORT_BINBYTES + b'\x03foo.'),
+            (b'x' * 255, 3, PROTO + p8(3) + SHORT_BINBYTES + p8(255) + b'x' * 255 + b'.'),
+            (b'x' * 256, 3, PROTO + p8(3) + BINBYTES + p32(256) + b'x' * 256 + b'.'),
+            ('bar\n\u4e2d\u6587', 0, UNICODE + br'bar\u000a\u4e2d\u6587' + b'\n.'),
+            ('bar\n\u4e2d\u6587', 3, PROTO + p8(3) + BINUNICODE + p32(10) + b'bar\n\xe4\xb8\xad\xe6\x96\x87.'),
+            ('bar\n\u4e2d\u6587', 4, PROTO + p8(4) + SHORT_BINUNICODE + p8(10) + b'bar\n\xe4\xb8\xad\xe6\x96\x87.'),
+            ('x' * 256, 4, PROTO + p8(4) + BINUNICODE + p32(256) + b'x' * 256 + b'.'),
+            ((), 0, MARK + TUPLE + b'.'),
+            ((), 1, EMPTY_TUPLE + b'.'),
+            ((1,), 1, MARK + BININT1 + p8(1) + TUPLE + b'.'),
+            ((1,), 2, PROTO + p8(2) + BININT1 + p8(1) + TUPLE1 + b'.'),
+            ((1, 2), 2, PROTO + p8(2) + BININT1 + p8(1) + BININT1 + p8(2) + TUPLE2 + b'.'),
+            ((1, 2, 3), 2, PROTO + p8(2) + BININT1 + p8(1) + BININT1 + p8(2) + BININT1 + p8(3) + TUPLE3 + b'.'),
+            ((1, 2, 3, 4), 2, PROTO + p8(2) + MARK + BININT1 + p8(1) + BININT1 + p8(2) + BININT1 + p8(3) + BININT1 + p8(4) + TUPLE + b'.'),  # noqa: E501  # pylint: disable=line-too-long
+            ([], 0, MARK + LIST + b'.'),
+            ([], 1, EMPTY_LIST + b'.'),
+            ([1, 2], 1, MARK + BININT1 + p8(1) + BININT1 + p8(2) + LIST + b'.'),
+            ({}, 0, MARK + DICT + b'.'),
+            ({}, 1, EMPTY_DICT + b'.'),
+            ({1: 2}, 1, MARK + BININT1 + p8(1) + BININT1 + p8(2) + DICT + b'.'),
+        ]  # type: list[tuple[object, int, bytes]]
+
+        for test_case in test_cases:
+            arg, proto, expected_result = test_case
+            with self.subTest(test_case=test_case):
+                pa = PickleAssembler(proto=proto)
+                pa.util_push(arg)
+                result = pa.assemble()
+                self.assertEqual(result, expected_result)
+                self.assertEqual(pickle.loads(result), arg)
+
+    def test_util_push_nested(self) -> None:
+        obj = {(None, True): [{-1: 3.14}, 'boo']}
+        for proto in range(HIGHEST_PROTOCOL + 1):
+            with self.subTest(obj=obj, proto=proto):
+                pa = PickleAssembler(proto=proto)
+                pa.util_push(obj)
+                self.assertEqual(pickle.loads(pa.assemble()), obj)
+
+        obj = {(None, True): [{-1: 3.14}, (b'baz', 'boo')]}
+        for proto in range(3, HIGHEST_PROTOCOL + 1):
+            with self.subTest(obj=obj, proto=proto):
+                pa = PickleAssembler(proto=proto)
+                pa.util_push(obj)
+                self.assertEqual(pickle.loads(pa.assemble()), obj)
+
+    def test_util_push_bytes_min_proto(self) -> None:
+        pa = PickleAssembler(proto=2)
+        with self.assertRaisesRegex(PickleProtocolMismatchError,
+                                    re.escape('must use at least protocol 3 to push bytes')):
+            pa._util_push_bytes(b'x')  # pylint: disable=protected-access
+
+    def test_util_memo(self) -> None:
+        obj = (42,)
+        indices = [255, 256]  # type: list[int]
+        for proto in range(HIGHEST_PROTOCOL + 1):
+            for index in indices:
+                with self.subTest(index=index, proto=proto):
+                    pa = PickleAssembler(proto=proto)
+                    pa.util_push(obj)
+                    pa.util_memo_put(index)
+                    pa.pop()
+                    pa.util_memo_get(index)
+                    self.assertEqual(pickle.loads(pa.assemble()), obj)
+
+    def test_string_encoding(self) -> None:
         test_cases = [
             ('push_string', '\xcc', 'latin-1'),
             ('push_binstring', '\xcc', 'latin-1'),
             ('push_binstring', '\u4e2d\u6587', 'utf-8'),
             ('push_short_binstring', '\xcc', 'latin-1'),
             ('push_short_binstring', '\u4e2d\u6587', 'utf-8'),
-        ]
+        ]  # type: list[tuple[str, str, str]]
 
         for test_case in test_cases:
             function, string, encoding = test_case
@@ -355,83 +466,100 @@ class TestPickleAssembler(unittest.TestCase):
                 getattr(pa, function)(string, encoding)
                 self.assertEqual(pickle.loads(pa.assemble(), encoding=encoding), string)
 
-    def test_invalid_arg(self):
+    def test_invalid_arg(self) -> None:
         test_cases = [
-            ('push_int', ('x',), TypeError),
-            ('push_binint', ('x',), TypeError),
-            ('push_binint', (2 ** 31,), ValueError),
-            ('push_binint', (- 2 ** 31 - 1,), ValueError),
-            ('push_binint1', ('x',), TypeError),
-            ('push_binint1', (-1,), ValueError),
-            ('push_binint1', (2 ** 8,), ValueError),
-            ('push_binint2', ('x',), TypeError),
-            ('push_binint2', (-1,), ValueError),
-            ('push_binint2', (2 ** 16,), ValueError),
-            ('push_long', ('x',), TypeError),
-            ('push_long1', ('x',), TypeError),
-            ('push_long1', (2 ** 2039,), ValueError),
-            ('push_long1', (- 2 ** 2039 - 1,), ValueError),
-            ('push_long4', ('x',), TypeError),
-            ('push_float', ('x',), TypeError),
-            ('push_binfloat', ('x',), TypeError),
-            ('push_string', (1,), TypeError),
-            ('push_string', (b'x',), TypeError),
-            ('push_string', ('x', 'x'), LookupError),
-            ('push_binstring', (1,), TypeError),
-            ('push_binstring', (b'x',), TypeError),
-            ('push_binstring', ('x', 'x'), LookupError),
-            ('push_short_binstring', (1,), TypeError),
-            ('push_short_binstring', (b'x',), TypeError),
-            ('push_short_binstring', ('x', 'x'), LookupError),
-            ('push_short_binstring', ('A' * 256,), ValueError),
-            ('push_binbytes', (1,), TypeError),
-            ('push_binbytes', ('x',), TypeError),
-            ('push_binbytes8', (1,), TypeError),
-            ('push_binbytes8', ('x',), TypeError),
-            ('push_short_binbytes', (1,), TypeError),
-            ('push_short_binbytes', ('x',), TypeError),
-            ('push_short_binbytes', (b'\xcc' * 256,), ValueError),
-            ('push_bytearray8', (1,), TypeError),
-            ('push_bytearray8', ('x',), TypeError),
-            ('push_unicode', (1,), TypeError),
-            ('push_unicode', (b'x',), TypeError),
-            ('push_binunicode', (1,), TypeError),
-            ('push_binunicode', (b'x',), TypeError),
-            ('push_binunicode8', (1,), TypeError),
-            ('push_binunicode8', (b'x',), TypeError),
-            ('push_short_binunicode', (1,), TypeError),
-            ('push_short_binunicode', (b'x',), TypeError),
-            ('push_short_binunicode', ('A' * 256,), ValueError),
-            ('push_global', (b'os', 'system'), TypeError),
-            ('push_global', ('os', b'system'), TypeError),
-            ('build_inst', (b'os', 'system'), TypeError),
-            ('build_inst', ('os', b'system'), TypeError),
-            ('memo_get', ('x',), TypeError),
-            ('memo_get', (-1,), ValueError),
-            ('memo_binget', ('x',), TypeError),
-            ('memo_binget', (-1,), ValueError),
-            ('memo_binget', (2 ** 8,), ValueError),
-            ('memo_long_binget', ('x',), TypeError),
-            ('memo_long_binget', (-1,), ValueError),
-            ('memo_long_binget', (2 ** 32,), ValueError),
-            ('memo_put', ('x',), TypeError),
-            ('memo_put', (-1,), ValueError),
-            ('memo_binput', ('x',), TypeError),
-            ('memo_binput', (-1,), ValueError),
-            ('memo_binput', (2 ** 8,), ValueError),
-            ('memo_long_binput', ('x',), TypeError),
-            ('memo_long_binput', (-1,), ValueError),
-            ('memo_long_binput', (2 ** 32,), ValueError),
-        ]
+            ('push_int', ('x',), TypeError, 'value should be an integer or bool'),
+            ('push_binint', ('x',), TypeError, 'value should be an integer'),
+            ('push_binint', (2 ** 31,), ValueError, 'integer out of range for opcode BININT'),
+            ('push_binint', (- 2 ** 31 - 1,), ValueError, 'integer out of range for opcode BININT'),
+            ('push_binint1', ('x',), TypeError, 'value should be an integer'),
+            ('push_binint1', (-1,), ValueError, 'integer out of range for opcode BININT1'),
+            ('push_binint1', (2 ** 8,), ValueError, 'integer out of range for opcode BININT1'),
+            ('push_binint2', ('x',), TypeError, 'value should be an integer'),
+            ('push_binint2', (-1,), ValueError, 'integer out of range for opcode BININT2'),
+            ('push_binint2', (2 ** 16,), ValueError, 'integer out of range for opcode BININT2'),
+            ('push_long', ('x',), TypeError, 'value should be an integer'),
+            ('push_long1', ('x',), TypeError, 'value should be an integer'),
+            ('push_long1', (2 ** 2039,), ValueError, 'integer too long for opcode LONG1'),
+            ('push_long1', (- 2 ** 2039 - 1,), ValueError, 'integer too long for opcode LONG1'),
+            ('push_long4', ('x',), TypeError, 'value should be an integer'),
+            ('push_float', ('x',), TypeError, 'value should be a float'),
+            ('push_binfloat', ('x',), TypeError, 'value should be a float'),
+            ('push_string', (1,), TypeError, 'value should be str'),
+            ('push_string', (b'x',), TypeError, 'value should be str'),
+            ('push_string', ('x', 'x'), LookupError, 'unknown encoding'),
+            ('push_binstring', (1,), TypeError, 'value should be str'),
+            ('push_binstring', (b'x',), TypeError, 'value should be str'),
+            ('push_binstring', ('x', 'x'), LookupError, 'unknown encoding'),
+            ('push_short_binstring', (1,), TypeError, 'value should be str'),
+            ('push_short_binstring', (b'x',), TypeError, 'value should be str'),
+            ('push_short_binstring', ('x', 'x'), LookupError, 'unknown encoding'),
+            ('push_short_binstring', ('A' * 256,), ValueError, 'string too long for opcode SHORT_BINSTRING'),
+            ('push_binbytes', (1,), TypeError, 'value should be bytes'),
+            ('push_binbytes', ('x',), TypeError, 'value should be bytes'),
+            ('push_binbytes8', (1,), TypeError, 'value should be bytes'),
+            ('push_binbytes8', ('x',), TypeError, 'value should be bytes'),
+            ('push_short_binbytes', (1,), TypeError, 'value should be bytes'),
+            ('push_short_binbytes', ('x',), TypeError, 'value should be bytes'),
+            ('push_short_binbytes', (b'\xcc' * 256,), ValueError, 'bytes too long for opcode SHORT_BINBYTES'),
+            ('push_unicode', (1,), TypeError, 'value should be str'),
+            ('push_unicode', (b'x',), TypeError, 'value should be str'),
+            ('push_binunicode', (1,), TypeError, 'value should be str'),
+            ('push_binunicode', (b'x',), TypeError, 'value should be str'),
+            ('push_binunicode8', (1,), TypeError, 'value should be str'),
+            ('push_binunicode8', (b'x',), TypeError, 'value should be str'),
+            ('push_short_binunicode', (1,), TypeError, 'value should be str'),
+            ('push_short_binunicode', (b'x',), TypeError, 'value should be str'),
+            ('push_short_binunicode', ('A' * 256,), ValueError, 'string too long for opcode SHORT_BINUNICODE'),
+            ('push_global', (b'os', 'system'), TypeError, 'module and name should be str'),
+            ('push_global', ('os', b'system'), TypeError, 'module and name should be str'),
+            ('build_inst', (b'os', 'system'), TypeError, 'module and name should be str'),
+            ('build_inst', ('os', b'system'), TypeError, 'module and name should be str'),
+            ('memo_get', ('x',), TypeError, 'memo index should be an integer'),
+            ('memo_get', (-1,), ValueError, 'memo index should be non-negative'),
+            ('memo_binget', ('x',), TypeError, 'memo index should be an integer'),
+            ('memo_binget', (-1,), ValueError, 'memo index out of range for opcode BINGET'),
+            ('memo_binget', (2 ** 8,), ValueError, 'memo index out of range for opcode BINGET'),
+            ('memo_long_binget', ('x',), TypeError, 'memo index should be an integer'),
+            ('memo_long_binget', (-1,), ValueError, 'memo index out of range for opcode LONG_BINGET'),
+            ('memo_long_binget', (2 ** 32,), ValueError, 'memo index out of range for opcode LONG_BINGET'),
+            ('memo_put', ('x',), TypeError, 'memo index should be an integer'),
+            ('memo_put', (-1,), ValueError, 'memo index should be non-negative'),
+            ('memo_binput', ('x',), TypeError, 'memo index should be an integer'),
+            ('memo_binput', (-1,), ValueError, 'memo index out of range for opcode BINPUT'),
+            ('memo_binput', (2 ** 8,), ValueError, 'memo index out of range for opcode BINPUT'),
+            ('memo_long_binput', ('x',), TypeError, 'memo index should be an integer'),
+            ('memo_long_binput', (-1,), ValueError, 'memo index out of range for opcode LONG_BINPUT'),
+            ('memo_long_binput', (2 ** 32,), ValueError, 'memo index out of range for opcode LONG_BINPUT'),
+            ('_util_push_bool', (1,), TypeError, 'value should be a bool'),
+            ('_util_push_int', (1.1,), TypeError, 'value should be an integer'),
+            ('_util_push_float', ('x',), TypeError, 'value should be a float'),
+            ('_util_push_bytes', ('x',), TypeError, 'value should be bytes'),
+            ('_util_push_unicode', (b'x',), TypeError, 'value should be str'),
+            ('_util_push_tuple', ([],), TypeError, 'value should be tuple'),
+            ('_util_push_list', ((),), TypeError, 'value should be list'),
+            ('_util_push_dict', ({0},), TypeError, 'value should be dict'),
+            ('util_push', (frozenset(),), TypeError, 'is currently unsupported by `util_push`'),
+            ('util_memo_get', ('x',), TypeError, 'memo index should be an integer'),
+            ('util_memo_get', (-1,), ValueError, 'memo index should be non-negative'),
+            ('util_memo_put', ('x',), TypeError, 'memo index should be an integer'),
+            ('util_memo_put', (-1,), ValueError, 'memo index should be non-negative'),
+        ]  # type: list[tuple[str, tuple[object, ...], type[BaseException], str]]
+
+        if DEFAULT_TEST_PROTO >= 5:  # pragma: no cover
+            test_cases += [
+                ('push_bytearray8', (1,), TypeError, 'value should be bytes or bytearray'),
+                ('push_bytearray8', ('x',), TypeError, 'value should be bytes or bytearray'),
+            ]
 
         for test_case in test_cases:
-            function, args, error = test_case
+            function, args, error, msg = test_case
             with self.subTest(test_case=test_case):
-                pa = PickleAssembler(proto=DEFAULT_TEST_PROTO, verify=False)
-                with self.assertRaises(error):
+                pa = PickleAssembler(proto=DEFAULT_TEST_PROTO)
+                with self.assertRaisesRegex(error, re.escape(msg)):
                     getattr(pa, function)(*args)
 
-    def test_protocol_mismatch(self):
+    def test_protocol_mismatch(self) -> None:
         test_cases = [
             ('push_binint', (1,), 1),
             ('push_binint1', (1,), 1),
@@ -471,48 +599,81 @@ class TestPickleAssembler(unittest.TestCase):
             ('build_stack_global', (), 4),
             ('memo_memoize', (), 4),
             ('push_bytearray8', (b'x',), 5),
-        ]
+        ]  # type: list[tuple[str, tuple[object, ...], int]]
 
         for test_case in test_cases:
             function, args, proto = test_case
             with self.subTest(test_case=test_case):
                 pa = PickleAssembler(proto=proto - 1)
-                with self.assertRaises(PickleProtocolMismatchError):
+                with self.assertRaisesRegex(PickleProtocolMismatchError,
+                                            r'opcode (?:\w+?) requires protocol version >= (?:\d+?), '
+                                            r'but current protocol is (?:\d+?)'):
                     getattr(pa, function)(*args)
                 pa = PickleAssembler(proto=proto - 1, verify=False)
                 getattr(pa, function)(*args)
 
-    def test_packing(self):
+    def test_packing(self) -> None:
         test_cases = [
-            ('pack', 0, {'endian': '<', 'signed': True}, b''),
-            ('pack', 255, {'endian': '<', 'signed': True}, b'\xff\x00'),
-            ('pack', -256, {'endian': '<', 'signed': True}, b'\x00\xff'),
-            ('pack', 32767, {'endian': '<', 'signed': True}, b'\xff\x7f'),
-            ('pack', 32768, {'endian': '<', 'signed': True}, b'\x00\x80\x00'),
-            ('pack', -32768, {'endian': '<', 'signed': True}, b'\x00\x80'),
-            ('pack', -32769, {'endian': '<', 'signed': True}, b'\xff\x7f\xff'),
-            ('pack', -128, {'endian': '<', 'signed': True}, b'\x80'),
-            ('pack', -129, {'endian': '<', 'signed': True}, b'\x7f\xff'),
-            ('pack', 127, {'endian': '<', 'signed': True}, b'\x7f'),
-            ('pack', 128, {'endian': '<', 'signed': True}, b'\x80\x00'),
-            ('pack', -32768, {'endian': '>', 'signed': True}, b'\x80\x00'),
-            ('pack', 255, {'endian': '<'}, b'\xff'),
-            ('p8', 0xbe, {}, b'\xbe'),
-            ('p8', -128, {'signed': True}, b'\x80'),
-            ('p16', 0xbeef, {}, b'\xef\xbe'),
-            ('p16', -32768, {'signed': True}, b'\x00\x80'),
-            ('p32', 0xdeadbeef, {}, b'\xef\xbe\xad\xde'),
-            ('p32', - 2 ** 31, {'signed': True}, b'\x00\x00\x00\x80'),
-            ('p64', 0xdeadbeefcafebabe, {}, b'\xbe\xba\xfe\xca\xef\xbe\xad\xde'),
-            ('p64', - 2 ** 63, {'signed': True}, b'\x00\x00\x00\x00\x00\x00\x00\x80'),
-        ]
+            (pack, 0, {'endian': '<', 'signed': True}, b''),
+            (pack, 255, {'endian': '<', 'signed': True}, b'\xff\x00'),
+            (pack, -256, {'endian': '<', 'signed': True}, b'\x00\xff'),
+            (pack, 32767, {'endian': '<', 'signed': True}, b'\xff\x7f'),
+            (pack, 32768, {'endian': '<', 'signed': True}, b'\x00\x80\x00'),
+            (pack, -32768, {'endian': '<', 'signed': True}, b'\x00\x80'),
+            (pack, -32769, {'endian': '<', 'signed': True}, b'\xff\x7f\xff'),
+            (pack, -128, {'endian': '<', 'signed': True}, b'\x80'),
+            (pack, -129, {'endian': '<', 'signed': True}, b'\x7f\xff'),
+            (pack, 127, {'endian': '<', 'signed': True}, b'\x7f'),
+            (pack, 128, {'endian': '<', 'signed': True}, b'\x80\x00'),
+            (pack, -32768, {'endian': '>', 'signed': True}, b'\x80\x00'),
+            (pack, -32768, {'endian': 'big', 'signed': True}, b'\x80\x00'),
+            (pack, 255, {'endian': '<'}, b'\xff'),
+            (pack, 255, {'endian': 'little'}, b'\xff'),
+            (pack, 255, {'endian': '<', 'word_size': 32}, b'\xff\x00\x00\x00'),
+            (p8, 0xbe, {}, b'\xbe'),
+            (p8, -128, {'signed': True}, b'\x80'),
+            (p16, 0xbeef, {}, b'\xef\xbe'),
+            (p16, -32768, {'signed': True}, b'\x00\x80'),
+            (p32, 0xdeadbeef, {}, b'\xef\xbe\xad\xde'),
+            (p32, - 2 ** 31, {'signed': True}, b'\x00\x00\x00\x80'),
+            (p64, 0xdeadbeefcafebabe, {}, b'\xbe\xba\xfe\xca\xef\xbe\xad\xde'),
+            (p64, - 2 ** 63, {'signed': True}, b'\x00\x00\x00\x00\x00\x00\x00\x80'),
+        ]  # type: list[tuple[Callable[..., bytes], int, dict[str, object], bytes]]
 
         for test_case in test_cases:
             function, arg, kwargs, expected_result = test_case
             with self.subTest(test_case=test_case):
-                self.assertEqual(globals()[function](arg, **kwargs), expected_result)
+                self.assertEqual(function(arg, **kwargs), expected_result)
 
-    def test_opcode_class(self):
+    def test_packing_invalid_args(self) -> None:
+        test_cases = [
+            (p8, -129, {'signed': True}, struct.error, ''),
+            (p8, 128, {'signed': True}, struct.error, ''),
+            (p8, -1, {}, struct.error, ''),
+            (p8, 256, {}, struct.error, ''),
+            (p16, -32769, {'signed': True}, struct.error, ''),
+            (p16, 32768, {'signed': True}, struct.error, ''),
+            (p16, -1, {}, struct.error, ''),
+            (p16, 65536, {}, struct.error, ''),
+            (p32, - 2 ** 31 - 1, {'signed': True}, struct.error, ''),
+            (p32, 2 ** 31, {'signed': True}, struct.error, ''),
+            (p32, -1, {}, struct.error, ''),
+            (p32, 2 ** 32, {}, struct.error, ''),
+            (p64, - 2 ** 63 - 1, {'signed': True}, struct.error, ''),
+            (p64, 2 ** 63, {'signed': True}, struct.error, ''),
+            (p64, -1, {}, struct.error, ''),
+            (p64, 2 ** 64, {}, struct.error, ''),
+            (pack, 0, {'endian': '?'}, ValueError, 'invalid endian'),
+            (pack, 0, {'endian': '<', 'word_size': 3}, ValueError, 'invalid word size'),
+        ]  # type: list[tuple[Callable[..., bytes], int, dict[str, object], type[BaseException], str]]
+
+        for test_case in test_cases:
+            function, arg, kwargs, error, msg = test_case
+            with self.subTest(test_case=test_case):
+                with self.assertRaisesRegex(error, re.escape(msg)):
+                    function(arg, **kwargs)
+
+    def test_opcode_class(self) -> None:
         opcode = Opcode('NAME', b'\xcc', 5)
         self.assertEqual(opcode.name, 'NAME')
         self.assertEqual(opcode.code, b'\xcc')
@@ -521,19 +682,27 @@ class TestPickleAssembler(unittest.TestCase):
         self.assertEqual(opcode + b'\xdd', b'\xcc\xdd')
         self.assertEqual(b'\xdd' + opcode, b'\xdd\xcc')
 
-    def test_is_opcode_method(self):
+    def test_is_opcode_method(self) -> None:
+        self.assertTrue(_is_opcode_method('push_false'))
         self.assertTrue(_is_opcode_method('push_binbytes'))
         self.assertTrue(_is_opcode_method('build_tuple1'))
         self.assertTrue(_is_opcode_method('pop'))
+        self.assertTrue(_is_opcode_method('pop_mark'))
         self.assertTrue(_is_opcode_method('memo_binput'))
         self.assertFalse(_is_opcode_method('__init__'))
         self.assertFalse(_is_opcode_method('assemble'))
+        self.assertFalse(_is_opcode_method('append_raw'))
+        self.assertFalse(_is_opcode_method('_util_push_bool'))
+        self.assertFalse(_is_opcode_method('util_push'))
+        self.assertFalse(_is_opcode_method('util_memo_get'))
 
-    def test_method_name_to_opcode(self):
+    def test_method_name_to_opcode(self) -> None:
         opcode = _method_name_to_opcode('push_false')
         self.assertEqual(opcode.name, 'NEWFALSE')
         opcode = _method_name_to_opcode('push_true')
         self.assertEqual(opcode.name, 'NEWTRUE')
+        opcode = _method_name_to_opcode('pop')
+        self.assertEqual(opcode.name, 'POP')
         opcode = _method_name_to_opcode('pop_mark')
         self.assertEqual(opcode.name, 'POP_MARK')
         opcode = _method_name_to_opcode('build_additems')
@@ -543,13 +712,13 @@ class TestPickleAssembler(unittest.TestCase):
         opcode = _method_name_to_opcode('push_empty_dict')
         self.assertEqual(opcode.name, 'EMPTY_DICT')
 
-    def test_method_decorator(self):
-        self.assertEqual(PickleAssembler.build_append.__doc__, 'Corresponds to the APPEND opcode.')
+    def test_method_decorator(self) -> None:
+        self.assertEqual(PickleAssembler.build_append.__doc__, 'Corresponds to the ``APPEND`` opcode.')
 
-    def test_exploit(self):
+    def test_exploit(self) -> None:
         pa = PickleAssembler(proto=0)
         pa.push_mark()
-        pa.push_unicode('__import__("subprocess").check_output("echo hacked", shell=True, universal_newlines=True)')
+        pa.util_push('__import__("subprocess").check_output("echo hacked", shell=True, universal_newlines=True)')
         pa.build_inst('builtins', 'eval')
         payload = pa.assemble()
         self.assertNotIn(b'R', payload)

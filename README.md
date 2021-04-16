@@ -21,7 +21,7 @@ from pickleassem import PickleAssembler
 
 pa = PickleAssembler(proto=4)
 pa.push_mark()
-pa.push_short_binunicode('cat /etc/passwd')
+pa.util_push('cat /etc/passwd')
 pa.build_inst('os', 'system')
 payload = pa.assemble()
 assert b'R' not in payload
@@ -53,7 +53,7 @@ Install with pip: `pip install -U pickleassem`
 
 ## Documentation
 
-Just refer to the source code. Each method of `PickleAssembler` whose name begins with `push`, `build`, `pop` or `memo` corresponds to a pickle opcode.
+Just refer to the source code. Each method of `PickleAssembler` whose name begins with `push`, `build`, `pop` or `memo` corresponds to a pickle opcode. Methods whose name begins with `util` are higher-level utility functions. `append_raw` can be used to insert arbitrary raw opcode.
 
 The following opcodes and corresponding features are not implemented: `PERSID`, `BINPERSID`, `EXT1`, `EXT2`, `EXT4`, `FRAME`, `NEXT_BUFFER`, `READONLY_BUFFER`.
 

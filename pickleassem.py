@@ -1,5 +1,13 @@
 import functools
 import struct
+from typing import cast
+
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Optional  # pylint: disable=ungrouped-imports # isort: split
+    from typing_extensions import Final
 
 # Integer packing utilities.
 
@@ -8,7 +16,7 @@ _endian_dict = {
     '>': 'big',
     'little': 'little',
     'big': 'big'
-}
+}  # type: Final[dict[str, str]]
 
 _word_size_dict = {
     None: None,
@@ -16,18 +24,18 @@ _word_size_dict = {
     16: 'h',
     32: 'i',
     64: 'q'
-}
+}  # type: Final[dict[Optional[int], Optional[str]]]
 
 
-def pack(x, *, endian, word_size=None, signed=False):
-    if endian not in _endian_dict:  # pragma: no cover
+def pack(x: int, *, endian: str, word_size: 'Optional[int]' = None, signed: bool = False) -> bytes:
+    """Pack an integer into bytes."""
+    if endian not in _endian_dict:
         raise ValueError('invalid endian')
-    if word_size not in _word_size_dict:  # pragma: no cover
+    if word_size not in _word_size_dict:
         raise ValueError('invalid word size')
     endian = _endian_dict[endian]
-    word_size = _word_size_dict[word_size]
-    signed = bool(signed)
-    if word_size is None:  # automatically determine byte length
+    word_size_code = _word_size_dict[word_size]
+    if word_size_code is None:  # automatically determine byte length
         if signed:  # adapted from pickle.encode_long()
             if x == 0:
                 return b''
@@ -37,12 +45,11 @@ def pack(x, *, endian, word_size=None, signed=False):
                 if result[-1] == 0xff and (result[-2] & 0x80) != 0:
                     result = result[:-1]
             return result if endian == 'little' else result[::-1]
-        else:
-            return x.to_bytes((x.bit_length() + 7) >> 3, byteorder=endian, signed=False)
+        return x.to_bytes((x.bit_length() + 7) >> 3, byteorder=endian, signed=False)
     if not signed:
-        word_size = word_size.upper()
+        word_size_code = word_size_code.upper()
     endian = '<' if endian == 'little' else '>'
-    return struct.pack(endian + word_size, x)
+    return struct.pack(endian + word_size_code, x)
 
 
 # Helper functions to pack integers.
@@ -53,11 +60,16 @@ p32 = functools.partial(pack, word_size=32, endian='<')
 p64 = functools.partial(pack, word_size=64, endian='<')
 
 # The highest protocol number that we can generate.
-HIGHEST_PROTOCOL = 5
+HIGHEST_PROTOCOL = 5  # type: Final[int]
 
 
 class Opcode(bytes):
-    def __new__(cls, name, code, proto):
+    # Define attributes here for typing purposes.
+    name = 'UNKNOWN_OPCODE'  # type: str
+    code = b''  # type: bytes
+    proto = 0  # type: int
+
+    def __new__(cls, name: str, code: bytes, proto: int) -> 'Opcode':
         obj = super().__new__(cls, code)
         obj.name = name
         obj.code = code
@@ -159,12 +171,12 @@ READONLY_BUFFER  = Opcode('READONLY_BUFFER',  b'\x98', 5)  # make top of stack r
 
 class PickleAssembler:
     """Pickle assembler."""
-    def __init__(self, proto=0, verify=True):
+    def __init__(self, proto: int = 0, verify: bool = True) -> None:
         """Create a new pickle assembler.
 
         Args:
-        - `proto` -- `int`, the protocol version to generate, a protocol header will be generated if proto >= 2
-        - `verify` -- `bool`, whether to check opcodes against the protocol number
+            proto: the protocol version to generate, a protocol header will be generated if ``proto`` >= 2
+            verify: whether to check opcodes against the protocol number
 
         """
         if not isinstance(proto, int):
@@ -173,31 +185,42 @@ class PickleAssembler:
             raise ValueError('unsupported pickle protocol, must be in range [0, {}]'.format(HIGHEST_PROTOCOL))
         if not isinstance(verify, bool):
             raise TypeError('verify must be bool')
-        self.proto = proto
-        self.verify = verify
+        self.proto = proto  # type: Final[int]
+        self.verify = verify  # type: Final[bool]
         self._payload = b''
         if proto >= 2:
             self._payload += PROTO + p8(proto)
 
-    def assemble(self):
+    def assemble(self) -> bytes:
         """Assemble pickle payload.
 
         Returns:
-        - `bytes` -- the generated pickle payload
+            the generated pickle payload
 
         """
         return self._payload + STOP
 
-    def push_none(self):
+    def append_raw(self, data: bytes) -> None:
+        """Append raw opcode data to the current pickle assembler.
+
+        Args:
+            data: the raw opcode data to append
+
+        """
+        if not isinstance(data, bytes):
+            raise TypeError('raw data must be bytes')
+        self._payload += data
+
+    def push_none(self) -> None:
         self._payload += NONE
 
-    def push_false(self):
+    def push_false(self) -> None:
         self._payload += NEWFALSE
 
-    def push_true(self):
+    def push_true(self) -> None:
         self._payload += NEWTRUE
 
-    def push_int(self, value):
+    def push_int(self, value: 'bool | int') -> None:
         if isinstance(value, bool):
             self._payload += [FALSE, TRUE][value]
         elif isinstance(value, int):
@@ -205,33 +228,33 @@ class PickleAssembler:
         else:
             raise TypeError('value should be an integer or bool')
 
-    def push_binint(self, value):
+    def push_binint(self, value: int) -> None:
         if not isinstance(value, int):
             raise TypeError('value should be an integer')
         if not - 2 ** 31 <= value <= 2 ** 31 - 1:
             raise ValueError('integer out of range for opcode BININT')
         self._payload += BININT + p32(value, signed=True)
 
-    def push_binint1(self, value):
+    def push_binint1(self, value: int) -> None:
         if not isinstance(value, int):
             raise TypeError('value should be an integer')
         if not 0 <= value <= 2 ** 8 - 1:
             raise ValueError('integer out of range for opcode BININT1')
         self._payload += BININT1 + p8(value)
 
-    def push_binint2(self, value):
+    def push_binint2(self, value: int) -> None:
         if not isinstance(value, int):
             raise TypeError('value should be an integer')
         if not 0 <= value <= 2 ** 16 - 1:
             raise ValueError('integer out of range for opcode BININT2')
         self._payload += BININT2 + p16(value)
 
-    def push_long(self, value):
+    def push_long(self, value: int) -> None:
         if not isinstance(value, int):
             raise TypeError('value should be an integer')
         self._payload += LONG + str(value).encode('ascii') + b'\n'
 
-    def push_long1(self, value):
+    def push_long1(self, value: int) -> None:
         if not isinstance(value, int):
             raise TypeError('value should be an integer')
         value_bytes = pack(value, endian='<', signed=True)
@@ -239,7 +262,7 @@ class PickleAssembler:
             raise ValueError('integer too long for opcode LONG1')
         self._payload += LONG1 + p8(len(value_bytes)) + value_bytes
 
-    def push_long4(self, value):
+    def push_long4(self, value: int) -> None:
         if not isinstance(value, int):
             raise TypeError('value should be an integer')
         value_bytes = pack(value, endian='<', signed=True)
@@ -247,22 +270,22 @@ class PickleAssembler:
             raise ValueError('integer too long for opcode LONG4')
         self._payload += LONG4 + p32(len(value_bytes), signed=True) + value_bytes
 
-    def push_float(self, value):
+    def push_float(self, value: float) -> None:
         if not isinstance(value, float):
             raise TypeError('value should be a float')
         self._payload += FLOAT + str(value).encode('ascii') + b'\n'
 
-    def push_binfloat(self, value):
+    def push_binfloat(self, value: float) -> None:
         if not isinstance(value, float):
             raise TypeError('value should be a float')
         self._payload += BINFLOAT + struct.pack('>d', value)
 
-    def push_string(self, value, encoding='ascii'):
+    def push_string(self, value: str, encoding: str = 'ascii') -> None:
         if not isinstance(value, str):
             raise TypeError('value should be str')
         self._payload += STRING + ascii(value).encode(encoding) + b'\n'
 
-    def push_binstring(self, value, encoding='ascii'):
+    def push_binstring(self, value: str, encoding: str = 'ascii') -> None:
         if not isinstance(value, str):
             raise TypeError('value should be str')
         value_bytes = value.encode(encoding)
@@ -270,7 +293,7 @@ class PickleAssembler:
             raise ValueError('string too long for opcode BINSTRING')
         self._payload += BINSTRING + p32(len(value_bytes), signed=True) + value_bytes
 
-    def push_short_binstring(self, value, encoding='ascii'):
+    def push_short_binstring(self, value: str, encoding: str = 'ascii') -> None:
         if not isinstance(value, str):
             raise TypeError('value should be str')
         value_bytes = value.encode(encoding)
@@ -278,35 +301,35 @@ class PickleAssembler:
             raise ValueError('string too long for opcode SHORT_BINSTRING')
         self._payload += SHORT_BINSTRING + p8(len(value_bytes)) + value_bytes
 
-    def push_binbytes(self, value):
+    def push_binbytes(self, value: bytes) -> None:
         if not isinstance(value, bytes):
             raise TypeError('value should be bytes')
         if len(value) >= 2 ** 32:  # pragma: no cover
             raise ValueError('bytes too long for opcode BINBYTES')
         self._payload += BINBYTES + p32(len(value)) + value
 
-    def push_binbytes8(self, value):
+    def push_binbytes8(self, value: bytes) -> None:
         if not isinstance(value, bytes):
             raise TypeError('value should be bytes')
         if len(value) >= 2 ** 64:  # pragma: no cover
             raise ValueError('bytes too long for opcode BINBYTES8')
         self._payload += BINBYTES8 + p64(len(value)) + value
 
-    def push_short_binbytes(self, value):
+    def push_short_binbytes(self, value: bytes) -> None:
         if not isinstance(value, bytes):
             raise TypeError('value should be bytes')
         if len(value) >= 2 ** 8:
             raise ValueError('bytes too long for opcode SHORT_BINBYTES')
         self._payload += SHORT_BINBYTES + p8(len(value)) + value
 
-    def push_bytearray8(self, value):
-        if not isinstance(value, bytes):
-            raise TypeError('value should be bytes')
+    def push_bytearray8(self, value: 'bytes | bytearray') -> None:
+        if not isinstance(value, (bytes, bytearray)):
+            raise TypeError('value should be bytes or bytearray')
         if len(value) >= 2 ** 64:  # pragma: no cover
             raise ValueError('bytes too long for opcode BYTEARRAY8')
         self._payload += BYTEARRAY8 + p64(len(value)) + value
 
-    def push_unicode(self, value):
+    def push_unicode(self, value: str) -> None:
         if not isinstance(value, str):
             raise TypeError('value should be str')
         value = value.replace('\\', '\\u005c')
@@ -316,7 +339,7 @@ class PickleAssembler:
         value = value.replace('\x1a', '\\u001a')
         self._payload += UNICODE + value.encode('raw-unicode-escape') + b'\n'
 
-    def push_binunicode(self, value):
+    def push_binunicode(self, value: str) -> None:
         if not isinstance(value, str):
             raise TypeError('value should be str')
         value_bytes = value.encode('utf-8', 'surrogatepass')
@@ -324,7 +347,7 @@ class PickleAssembler:
             raise ValueError('string too long for opcode BINUNICODE')
         self._payload += BINUNICODE + p32(len(value_bytes)) + value_bytes
 
-    def push_binunicode8(self, value):
+    def push_binunicode8(self, value: str) -> None:
         if not isinstance(value, str):
             raise TypeError('value should be str')
         value_bytes = value.encode('utf-8', 'surrogatepass')
@@ -332,7 +355,7 @@ class PickleAssembler:
             raise ValueError('string too long for opcode BINUNICODE8')
         self._payload += BINUNICODE8 + p64(len(value_bytes)) + value_bytes
 
-    def push_short_binunicode(self, value):
+    def push_short_binunicode(self, value: str) -> None:
         if not isinstance(value, str):
             raise TypeError('value should be str')
         value_bytes = value.encode('utf-8', 'surrogatepass')
@@ -340,183 +363,364 @@ class PickleAssembler:
             raise ValueError('string too long for opcode SHORT_BINUNICODE')
         self._payload += SHORT_BINUNICODE + p8(len(value_bytes)) + value_bytes
 
-    def push_empty_tuple(self):
+    def push_empty_tuple(self) -> None:
         self._payload += EMPTY_TUPLE
 
-    def push_empty_list(self):
+    def push_empty_list(self) -> None:
         self._payload += EMPTY_LIST
 
-    def push_empty_dict(self):
+    def push_empty_dict(self) -> None:
         self._payload += EMPTY_DICT
 
-    def push_empty_set(self):
+    def push_empty_set(self) -> None:
         self._payload += EMPTY_SET
 
-    def push_global(self, module, name):
+    def push_global(self, module: str, name: str) -> None:
         if not isinstance(module, str) or not isinstance(name, str):
             raise TypeError('module and name should be str')
         self._payload += GLOBAL
         self._payload += module.encode('utf-8') + b'\n'
         self._payload += name.encode('utf-8') + b'\n'
 
-    def push_mark(self):
+    def push_mark(self) -> None:
         self._payload += MARK
 
-    def build_tuple(self):
+    def build_tuple(self) -> None:
         self._payload += TUPLE
 
-    def build_tuple1(self):
+    def build_tuple1(self) -> None:
         self._payload += TUPLE1
 
-    def build_tuple2(self):
+    def build_tuple2(self) -> None:
         self._payload += TUPLE2
 
-    def build_tuple3(self):
+    def build_tuple3(self) -> None:
         self._payload += TUPLE3
 
-    def build_list(self):
+    def build_list(self) -> None:
         self._payload += LIST
 
-    def build_dict(self):
+    def build_dict(self) -> None:
         self._payload += DICT
 
-    def build_frozenset(self):
+    def build_frozenset(self) -> None:
         self._payload += FROZENSET
 
-    def build_append(self):
+    def build_append(self) -> None:
         self._payload += APPEND
 
-    def build_appends(self):
+    def build_appends(self) -> None:
         self._payload += APPENDS
 
-    def build_setitem(self):
+    def build_setitem(self) -> None:
         self._payload += SETITEM
 
-    def build_setitems(self):
+    def build_setitems(self) -> None:
         self._payload += SETITEMS
 
-    def build_additems(self):
+    def build_additems(self) -> None:
         self._payload += ADDITEMS
 
-    def build_inst(self, module, name):
+    def build_inst(self, module: str, name: str) -> None:
         if not isinstance(module, str) or not isinstance(name, str):
             raise TypeError('module and name should be str')
         self._payload += INST
         self._payload += module.encode('ascii') + b'\n'
         self._payload += name.encode('ascii') + b'\n'
 
-    def build_obj(self):
+    def build_obj(self) -> None:
         self._payload += OBJ
 
-    def build_newobj(self):
+    def build_newobj(self) -> None:
         self._payload += NEWOBJ
 
-    def build_newobj_ex(self):
+    def build_newobj_ex(self) -> None:
         self._payload += NEWOBJ_EX
 
-    def build_stack_global(self):
+    def build_stack_global(self) -> None:
         self._payload += STACK_GLOBAL
 
-    def build_reduce(self):
+    def build_reduce(self) -> None:
         self._payload += REDUCE
 
-    def build_build(self):
+    def build_build(self) -> None:
         self._payload += BUILD
 
-    def build_dup(self):
+    def build_dup(self) -> None:
         self._payload += DUP
 
-    def pop(self):
+    def pop(self) -> None:
         self._payload += POP
 
-    def pop_mark(self):
+    def pop_mark(self) -> None:
         self._payload += POP_MARK
 
-    def memo_get(self, index):
+    def memo_get(self, index: int) -> None:
         if not isinstance(index, int):
             raise TypeError('memo index should be an integer')
         if index < 0:
             raise ValueError('memo index should be non-negative')
         self._payload += GET + str(index).encode('ascii') + b'\n'
 
-    def memo_binget(self, index):
+    def memo_binget(self, index: int) -> None:
         if not isinstance(index, int):
             raise TypeError('memo index should be an integer')
         if not 0 <= index <= 2 ** 8 - 1:
             raise ValueError('memo index out of range for opcode BINGET')
         self._payload += BINGET + p8(index)
 
-    def memo_long_binget(self, index):
+    def memo_long_binget(self, index: int) -> None:
         if not isinstance(index, int):
             raise TypeError('memo index should be an integer')
         if not 0 <= index <= 2 ** 32 - 1:
             raise ValueError('memo index out of range for opcode LONG_BINGET')
         self._payload += LONG_BINGET + p32(index)
 
-    def memo_put(self, index):
+    def memo_put(self, index: int) -> None:
         if not isinstance(index, int):
             raise TypeError('memo index should be an integer')
         if index < 0:
             raise ValueError('memo index should be non-negative')
         self._payload += PUT + str(index).encode('ascii') + b'\n'
 
-    def memo_binput(self, index):
+    def memo_binput(self, index: int) -> None:
         if not isinstance(index, int):
             raise TypeError('memo index should be an integer')
         if not 0 <= index <= 2 ** 8 - 1:
             raise ValueError('memo index out of range for opcode BINPUT')
         self._payload += BINPUT + p8(index)
 
-    def memo_long_binput(self, index):
+    def memo_long_binput(self, index: int) -> None:
         if not isinstance(index, int):
             raise TypeError('memo index should be an integer')
         if not 0 <= index <= 2 ** 32 - 1:
             raise ValueError('memo index out of range for opcode LONG_BINPUT')
         self._payload += LONG_BINPUT + p32(index)
 
-    def memo_memoize(self):
+    def memo_memoize(self) -> None:
         self._payload += MEMOIZE
+
+    def _util_push_bool(self, value: bool) -> None:
+        if not isinstance(value, bool):
+            raise TypeError('value should be a bool')
+        if self.proto < 2:
+            self.push_int(value)
+        else:
+            [self.push_false, self.push_true][value]()
+
+    def _util_push_int(self, value: int) -> None:
+        if not isinstance(value, int):
+            raise TypeError('value should be an integer')
+        if self.proto == 0:
+            self.push_int(value)
+        elif 0 <= value <= 2 ** 8 - 1:
+            self.push_binint1(value)
+        elif 0 <= value <= 2 ** 16 - 1:
+            self.push_binint2(value)
+        elif - 2 ** 31 <= value <= 2 ** 31 - 1:
+            self.push_binint(value)
+        elif self.proto == 1:
+            self.push_int(value)
+        elif - 2 ** 2039 <= value <= 2 ** 2039 - 1:
+            self.push_long1(value)
+        else:
+            self.push_long4(value)  # really large, rarely exceed this limit
+
+    def _util_push_float(self, value: float) -> None:
+        if not isinstance(value, float):
+            raise TypeError('value should be a float')
+        if self.proto == 0:
+            self.push_float(value)
+        else:
+            self.push_binfloat(value)
+
+    def _util_push_bytes(self, value: bytes) -> None:
+        if not isinstance(value, bytes):
+            raise TypeError('value should be bytes')
+        if self.proto < 3:
+            raise PickleProtocolMismatchError('must use at least protocol 3 to push bytes')
+        length = len(value)
+        if length < 2 ** 8:
+            self.push_short_binbytes(value)
+        elif length < 2 ** 32:  # pragma: no branch
+            self.push_binbytes(value)
+        elif self.proto < 4:  # pragma: no cover
+            raise ValueError('bytes length too long for protocol 3')
+        else:  # pragma: no cover
+            self.push_binbytes8(value)
+
+    def _util_push_unicode(self, value: str) -> None:
+        if not isinstance(value, str):
+            raise TypeError('value should be str')
+        if self.proto == 0:
+            self.push_unicode(value)
+        else:
+            length = len(value.encode('utf-8', 'surrogatepass'))
+            if self.proto < 4:
+                if length < 2 ** 32:  # pragma: no branch
+                    self.push_binunicode(value)
+                else:  # pragma: no cover
+                    self.push_unicode(value)
+            elif length < 2 ** 8:
+                self.push_short_binunicode(value)
+            elif length < 2 ** 32:  # pragma: no branch
+                self.push_binunicode(value)
+            else:  # pragma: no cover
+                self.push_binunicode8(value)  # really large, rarely exceed this limit
+
+    def _util_push_tuple(self, value: 'tuple[object, ...]') -> None:
+        if not isinstance(value, tuple):
+            raise TypeError('value should be tuple')
+        if not value:
+            if self.proto == 0:
+                self.push_mark()
+                self.build_tuple()
+            else:
+                self.push_empty_tuple()
+        else:
+            short_flag = self.proto >= 2 and len(value) <= 3
+            if not short_flag:
+                self.push_mark()
+            for item in value:
+                self.util_push(item)
+            if short_flag:
+                getattr(self, 'build_tuple' + str(len(value)))()
+            else:
+                self.build_tuple()
+
+    def _util_push_list(self, value: 'list[object]') -> None:
+        if not isinstance(value, list):
+            raise TypeError('value should be list')
+        if not value:
+            if self.proto == 0:
+                self.push_mark()
+                self.build_list()
+            else:
+                self.push_empty_list()
+        else:
+            self.push_mark()
+            for item in value:
+                self.util_push(item)
+            self.build_list()
+
+    def _util_push_dict(self, value: 'dict[object, object]') -> None:
+        if not isinstance(value, dict):
+            raise TypeError('value should be dict')
+        if not value:
+            if self.proto == 0:
+                self.push_mark()
+                self.build_dict()
+            else:
+                self.push_empty_dict()
+        else:
+            self.push_mark()
+            for k, v in value.items():
+                self.util_push(k)
+                self.util_push(v)
+            self.build_dict()
+
+    def util_push(self, value: object) -> None:
+        """Higher-level utility function to push common objects (including nested objects).
+
+        The object might be any nested structure involving the following types:
+            NoneType, bool, int, float, bytes, str, tuple, list, dict
+
+        Recursive objects are not supported.
+
+        """
+        if value is None:
+            self.push_none()
+        elif isinstance(value, bool):
+            self._util_push_bool(value)
+        elif isinstance(value, int):
+            self._util_push_int(value)
+        elif isinstance(value, float):
+            self._util_push_float(value)
+        elif isinstance(value, bytes):
+            self._util_push_bytes(value)
+        elif isinstance(value, str):
+            self._util_push_unicode(value)
+        elif isinstance(value, tuple):
+            self._util_push_tuple(value)
+        elif isinstance(value, list):
+            self._util_push_list(value)
+        elif isinstance(value, dict):
+            self._util_push_dict(value)
+        else:
+            raise TypeError('value of type {!r} is currently unsupported by `util_push`'.format(type(value).__name__))
+
+    def util_memo_get(self, index: int) -> None:
+        if not isinstance(index, int):
+            raise TypeError('memo index should be an integer')
+        if index < 0:
+            raise ValueError('memo index should be non-negative')
+        if self.proto == 0:
+            self.memo_get(index)
+        elif 0 <= index <= 2 ** 8 - 1:
+            self.memo_binget(index)
+        elif 0 <= index <= 2 ** 32 - 1:  # pragma: no branch
+            self.memo_long_binget(index)
+        else:  # pragma: no cover
+            self.memo_get(index)
+
+    def util_memo_put(self, index: int) -> None:
+        if not isinstance(index, int):
+            raise TypeError('memo index should be an integer')
+        if index < 0:
+            raise ValueError('memo index should be non-negative')
+        if self.proto == 0:
+            self.memo_put(index)
+        elif 0 <= index <= 2 ** 8 - 1:
+            self.memo_binput(index)
+        elif 0 <= index <= 2 ** 32 - 1:  # pragma: no branch
+            self.memo_long_binput(index)
+        else:  # pragma: no cover
+            self.memo_put(index)
 
 
 class PickleProtocolMismatchError(Exception):
     """Raised when opcode does not match protocol."""
-    pass
 
 
 # Internal operations.
 
-def _is_opcode_method(method_name):
+def _is_opcode_method(method_name: str) -> bool:
     return any(method_name.startswith(prefix) for prefix in ('push', 'build', 'pop', 'memo'))
 
 
-def _method_name_to_opcode(method_name):
+def _method_name_to_opcode(method_name: str) -> 'Opcode':
     if method_name in ('push_false', 'push_true'):
-        return globals()['NEW' + method_name[5:].upper()]
+        ret = globals()['NEW' + method_name[5:].upper()]
     elif method_name.startswith('pop'):
-        return globals()[method_name.upper()]
+        ret = globals()[method_name.upper()]
     elif method_name.startswith('build'):
-        return globals()[method_name[6:].upper()]
+        ret = globals()[method_name[6:].upper()]
     else:  # other push and memo
-        return globals()[method_name[5:].upper()]
+        ret = globals()[method_name[5:].upper()]
+    return cast(Opcode, ret)
 
 
-def _opcode_method_decorator(func):
+def _opcode_method_decorator(func: 'Callable[..., None]') -> 'Callable[..., None]':
     opcode = _method_name_to_opcode(func.__name__)
+
     @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self: 'PickleAssembler', *args: object, **kwargs: object) -> None:
         if self.verify and self.proto < opcode.proto:
             raise PickleProtocolMismatchError('opcode {} requires protocol version >= {}, '
-                                              'but current protocol is {}'.format(opcode.name, opcode.proto, self.proto))
+                                              'but current protocol is {}'.format(
+                                                  opcode.name, opcode.proto, self.proto
+                                              ))
         return func(self, *args, **kwargs)
-    wrapper.__doc__ = 'Corresponds to the {} opcode.'.format(opcode.name)
+
+    wrapper.__doc__ = 'Corresponds to the ``{}`` opcode.'.format(opcode.name)
     return wrapper
 
 
-for method_name in dir(PickleAssembler):
-    if _is_opcode_method(method_name):
-        method = getattr(PickleAssembler, method_name)
-        setattr(PickleAssembler, method_name, _opcode_method_decorator(method))
+for _method_name in dir(PickleAssembler):
+    if _is_opcode_method(_method_name):
+        _method = getattr(PickleAssembler, _method_name)
+        setattr(PickleAssembler, _method_name, _opcode_method_decorator(_method))
 
-del method_name, method
+del _method_name, _method  # pylint: disable=undefined-loop-variable
 
 __all__ = ['PickleAssembler', 'PickleProtocolMismatchError', 'HIGHEST_PROTOCOL']

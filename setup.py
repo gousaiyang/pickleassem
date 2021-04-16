@@ -1,6 +1,6 @@
 import os
 
-from setuptools import setup
+from setuptools import setup  # type: ignore[import]
 
 os.chdir(os.path.dirname(os.path.realpath(__file__)))
 
@@ -30,5 +30,9 @@ setup(
     ],
     keywords='pickle assembler handcraft bytecode security exploit ctf',
     py_modules=['pickleassem'],
-    python_requires='>=3',
+    python_requires='>=3.4',
+    install_requires=[
+        'typing;python_version<"3.5"',
+        'typing_extensions>=3.7.2',
+    ],
 )
