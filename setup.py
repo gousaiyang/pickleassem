@@ -9,7 +9,7 @@ with open('README.md', 'r', encoding='utf-8') as f:
 
 setup(
     name='pickleassem',
-    version='1.0.0',
+    version='1.1.0',
     description='A simple pickle assembler to make handcrafting pickle bytecode easier.',
     long_description=long_description,
     long_description_content_type='text/markdown',
