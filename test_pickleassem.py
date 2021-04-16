@@ -647,25 +647,25 @@ class TestPickleAssembler(unittest.TestCase):
 
     def test_packing_invalid_args(self) -> None:
         test_cases = [
-            (p8, -129, {'signed': True}, struct.error, ''),
-            (p8, 128, {'signed': True}, struct.error, ''),
-            (p8, -1, {}, struct.error, ''),
-            (p8, 256, {}, struct.error, ''),
-            (p16, -32769, {'signed': True}, struct.error, ''),
-            (p16, 32768, {'signed': True}, struct.error, ''),
-            (p16, -1, {}, struct.error, ''),
-            (p16, 65536, {}, struct.error, ''),
-            (p32, - 2 ** 31 - 1, {'signed': True}, struct.error, ''),
-            (p32, 2 ** 31, {'signed': True}, struct.error, ''),
-            (p32, -1, {}, struct.error, ''),
-            (p32, 2 ** 32, {}, struct.error, ''),
-            (p64, - 2 ** 63 - 1, {'signed': True}, struct.error, ''),
-            (p64, 2 ** 63, {'signed': True}, struct.error, ''),
-            (p64, -1, {}, struct.error, ''),
-            (p64, 2 ** 64, {}, struct.error, ''),
+            (p8, -129, {'signed': True}, (struct.error, ValueError), ''),
+            (p8, 128, {'signed': True}, (struct.error, ValueError), ''),
+            (p8, -1, {}, (struct.error, ValueError), ''),
+            (p8, 256, {}, (struct.error, ValueError), ''),
+            (p16, -32769, {'signed': True}, (struct.error, ValueError), ''),
+            (p16, 32768, {'signed': True}, (struct.error, ValueError), ''),
+            (p16, -1, {}, (struct.error, ValueError), ''),
+            (p16, 65536, {}, (struct.error, ValueError), ''),
+            (p32, - 2 ** 31 - 1, {'signed': True}, (struct.error, ValueError), ''),
+            (p32, 2 ** 31, {'signed': True}, (struct.error, ValueError), ''),
+            (p32, -1, {}, (struct.error, ValueError), ''),
+            (p32, 2 ** 32, {}, (struct.error, ValueError), ''),
+            (p64, - 2 ** 63 - 1, {'signed': True}, (struct.error, ValueError), ''),
+            (p64, 2 ** 63, {'signed': True}, (struct.error, ValueError), ''),
+            (p64, -1, {}, (struct.error, ValueError), ''),
+            (p64, 2 ** 64, {}, (struct.error, ValueError), ''),
             (pack, 0, {'endian': '?'}, ValueError, 'invalid endian'),
             (pack, 0, {'endian': '<', 'word_size': 3}, ValueError, 'invalid word size'),
-        ]  # type: list[tuple[Callable[..., bytes], int, dict[str, object], type[BaseException], str]]
+        ]  # type: list[tuple[Callable[..., bytes], int, dict[str, object], type[BaseException] | tuple[type[BaseException], ...], str]]  # noqa: E501  # pylint: disable=line-too-long
 
         for test_case in test_cases:
             function, arg, kwargs, error, msg = test_case
